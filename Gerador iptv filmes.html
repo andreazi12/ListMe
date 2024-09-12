@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerar Lista IPTV</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        #addRowBtn {
+            margin-bottom: 10px;
+        }
+        .search-results {
+            margin-top: 5px;
+        }
+        .search-results select {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Preencha o Nome ou o ID TMDB e o Link dos Filmes</h2>
+
+<!-- Botão para adicionar nova linha -->
+<button id="addRowBtn">Adicionar Linha</button>
+
+<table id="movieTable">
+    <thead>
+        <tr>
+            <th>ID TMDB ou Nome + Ano</th>
+            <th>Link do Filme</th>
+        </tr>
+    </thead>
+    <tbody>
+        <!-- Inicia com uma linha vazia -->
+        <tr>
+            <td>
+                <input type="text" class="movie-name" placeholder="Nome do Filme">
+                <input type="text" class="movie-year" placeholder="Ano">
+                <button class="search-btn">Buscar Filme</button>
+                <div class="search-results"></div>
+                <input type="hidden" class="tmdb-id">
+            </td>
+            <td><input type="text" class="movie-link" placeholder="Link do Filme"></td>
+        </tr>
+    </tbody>
+</table>
+
+<button onclick="generateIPTV()">Gerar Arquivo .txt</button>
+
+<script>
+    const apiKey = 'e50d975cf1ffa4ede299fca2dd226059'; // Insira sua chave da API do TMDB aqui
+
+    // Função para adicionar uma nova linha
+    function addRow() {
+        const tableBody = document.querySelector('#movieTable tbody');
+        const row = document.createElement('tr');
+
+        row.innerHTML = `
+            <td>
+                <input type="text" class="movie-name" placeholder="Nome do Filme">
+                <input type="text" class="movie-year" placeholder="Ano">
+                <button class="search-btn">Buscar Filme</button>
+                <div class="search-results"></div>
+                <input type="hidden" class="tmdb-id">
+            </td>
+            <td><input type="text" class="movie-link" placeholder="Link do Filme"></td>
+        `;
+        tableBody.appendChild(row);
+
+        // Ativa o botão de busca da nova linha
+        row.querySelector('.search-btn').addEventListener('click', searchMovie);
+    }
+
+    // Adiciona uma linha ao clicar no botão "Adicionar Linha"
+    document.getElementById('addRowBtn').addEventListener('click', addRow);
+
+    // Função para buscar filmes por nome e ano
+    async function searchMovie(event) {
+        const row = event.target.closest('tr');
+        const movieName = row.querySelector('.movie-name').value.trim();
+        const movieYear = row.querySelector('.movie-year').value.trim();
+        const searchResultsDiv = row.querySelector('.search-results');
+
+        if (!movieName) {
+            alert("Por favor, insira o nome do filme.");
+            return;
+        }
+
+        try {
+            const response = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${apiKey}&query=${movieName}&year=${movieYear}&language=pt-BR`);
+            if (!response.ok) throw new Error('Erro na busca do filme.');
+            const data = await response.json();
+
+            // Se houver resultados, exibe as opções em um select
+            if (data.results && data.results.length > 0) {
+                let options = '<select class="movie-select"><option value="">Selecione o filme</option>';
+                data.results.forEach(movie => {
+                    const title = movie.title;
+                    const year = new Date(movie.release_date).getFullYear();
+                    options += `<option value="${movie.id}">${title} (${year})</option>`;
+                });
+                options += '</select>';
+                searchResultsDiv.innerHTML = options;
+
+                // Quando o usuário selecionar um filme, salva o ID TMDB correspondente
+                row.querySelector('.movie-select').addEventListener('change', function() {
+                    const selectedId = this.value;
+                    row.querySelector('.tmdb-id').value = selectedId;
+                });
+            } else {
+                searchResultsDiv.innerHTML = 'Nenhum filme encontrado.';
+            }
+        } catch (error) {
+            console.error('Erro ao buscar o filme:', error);
+            searchResultsDiv.innerHTML = 'Erro na busca do filme.';
+        }
+    }
+
+    async function fetchMovieDetails(id) {
+        try {
+            const response = await fetch(`https://api.themoviedb.org/3/movie/${id}?api_key=${apiKey}&language=pt-BR`);
+            if (!response.ok) throw new Error('Filme não encontrado');
+            const data = await response.json();
+            return data;
+        } catch (error) {
+            console.error('Erro ao buscar informações do TMDB:', error);
+        }
+    }
+
+    async function generateIPTV() {
+        let content = '';
+        const rows = document.querySelectorAll('#movieTable tbody tr');
+
+        for (let row of rows) {
+            const tmdbId = row.querySelector('.tmdb-id').value.trim();
+            const movieLink = row.querySelector('.movie-link').value.trim();
+
+            if (tmdbId && movieLink) {
+                const movieData = await fetchMovieDetails(tmdbId);
+                if (movieData) {
+                    const movieTitle = movieData.title;
+                    const movieYear = new Date(movieData.release_date).getFullYear();
+                    const movieCategory = movieData.genres.length > 0 ? movieData.genres[0].name : 'Sem Categoria';
+                    const moviePoster = `https://image.tmdb.org/t/p/w220_and_h330_face${movieData.poster_path}`;
+
+                    // Adiciona as informações no formato desejado
+                    content += `#EXTINF:-1 tvg-logo="${moviePoster}" group-title="${movieCategory}",${movieTitle} (${movieYear})\n${movieLink}\n`;
+                }
+            }
+        }
+
+        if (content) {
+            downloadTxt(content, 'lista_iptv.txt');
+        } else {
+            alert('Preencha pelo menos um ID TMDB ou Nome e Ano, e o Link do Filme.');
+        }
+    }
+
+    function downloadTxt(content, filename) {
+        // Solução ajustada para garantir o download correto do arquivo .txt
+        const element = document.createElement('a');
+        const file = new Blob([content], { type: 'text/plain' });
+        element.href = URL.createObjectURL(file);
+        element.download = filename;
+
+        document.body.appendChild(element); // Requerido para o Firefox
+        element.click();
+
+        document.body.removeChild(element); // Remove o elemento após o clique
+        URL.revokeObjectURL(element.href); // Revoga o objeto URL após o uso
+    }
+
+    // Ativa o botão de busca da primeira linha
+    document.querySelector('.search-btn').addEventListener('click', searchMovie);
+</script>
+
+</body>
+</html>
